@@ -27,7 +27,9 @@ esp_err_t camera_module_init(void)
         .pin_href  = CAM_PIN_HREF,
         .pin_pclk  = CAM_PIN_DCLK,
 
-        .xclk_freq_hz = 20000000,
+        /* 20MHz 는 장시간 가동 시 발열/DMA 부담으로 OV2640 가 간헐적으로
+         * 프레임을 드롭(캡처 실패)할 수 있어 16MHz 로 낮춰 안정성을 높인다. */
+        .xclk_freq_hz = 16000000,
         .ledc_timer   = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
 

@@ -47,13 +47,22 @@ static esp_err_t stream_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
     char part_buf[64];
+    int fail_count = 0;
     while (true) {
         camera_fb_t *fb = esp_camera_fb_get();
         if (!fb) {
-            ESP_LOGE(TAG, "프레임 캡처 실패");
+            /* 일시적 캡처 실패(장시간 가동 중 발열/DMA 지연 등)는 스트림을
+             * 끊지 않고 잠깐 쉰 뒤 재시도한다. 연속으로 실패할 때만 종료. */
+            if (++fail_count <= 10) {
+                ESP_LOGW(TAG, "프레임 캡처 실패 (%d/10) — 재시도", fail_count);
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            }
+            ESP_LOGE(TAG, "프레임 캡처 연속 실패 — 스트림 종료");
             res = ESP_FAIL;
             break;
         }
+        fail_count = 0;
 
         size_t hlen = snprintf(part_buf, sizeof(part_buf), STREAM_PART, fb->len);
 
