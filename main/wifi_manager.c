@@ -83,6 +83,10 @@ esp_err_t wifi_manager_scan(wifi_ap_info_t *ap_list, uint16_t *ap_count)
 
 esp_err_t wifi_manager_connect(const char *ssid, const char *password)
 {
+    /* 재설정으로 다른 AP 에 다시 연결할 때 깔끔히 끊고 시작한다.
+     * 아직 연결돼 있지 않으면 무시되는 호출이라 안전하다. */
+    esp_wifi_disconnect();
+
     s_evt_group = xEventGroupCreate();
     s_retry_num = 0;
 

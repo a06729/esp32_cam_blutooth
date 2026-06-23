@@ -6,7 +6,7 @@
  *   2) 저장된 정보가 없거나 연결 실패 → BLE 광고 시작 ("ESP32-CAM")
  *   3) 앱이 BLE 연결 → WiFi 목록을 앱으로 전송 (0xFF01 알림)
  *   4) 앱에서 SSID/비밀번호 전송 → WiFi 연결 시도 (0xFF02 쓰기)
- *   5) 연결 성공: IP 주소를 앱으로 알림 (0xFF03) → BLE 종료
+ *   5) 연결 성공: IP 주소를 앱으로 알림 → BLE 광고는 유지(앱에서 재설정 가능)
  *   6) HTTP 스트리밍 서버 시작
  *        http://<IP>/        : 뷰어 페이지
  *        http://<IP>/stream  : MJPEG 스트림
@@ -150,6 +150,15 @@ void app_main(void)
      * BLE 프로비저닝을 막지 않도록 하기 위함 */
     ESP_ERROR_CHECK(wifi_manager_init());
 
+    /* ---- BLE 프로비저닝을 항상 켜 둔다 ----
+     * WiFi 연결 성공 후에도 BLE 광고를 유지해, 앱에서 언제든 WiFi 를
+     * 다시 설정할 수 있게 한다. (성공해도 ble_prov_stop 을 호출하지 않음) */
+    s_prov_done = xSemaphoreCreateBinary();
+    ESP_ERROR_CHECK(ble_prov_init());
+    ESP_ERROR_CHECK(ble_prov_start(on_ble_connected, on_ble_scan_request,
+                                   on_ble_credentials));
+    ESP_LOGI(TAG, "BLE 광고 시작 — 앱에서 'ESP32-CAM' 으로 언제든 WiFi 설정 가능");
+
     /* ---- NVS 에서 자격증명 불러와 자동 연결 시도 ---- */
     char saved_ssid[33] = { 0 };
     char saved_pass[65] = { 0 };
@@ -161,26 +170,16 @@ void app_main(void)
         ESP_LOGI(TAG, "저장된 WiFi 사용: %s", saved_ssid);
         wifi_connected = (wifi_manager_connect(saved_ssid, saved_pass) == ESP_OK);
         if (!wifi_connected) {
-            ESP_LOGW(TAG, "저장된 자격증명으로 연결 실패 → BLE 프로비저닝 시작");
+            ESP_LOGW(TAG, "저장된 자격증명으로 연결 실패 → 앱의 BLE 프로비저닝 대기");
         }
     }
 
-    /* ---- 연결 실패 또는 저장 정보 없음 → BLE 프로비저닝 ---- */
+    /* ---- 저장 정보 없음 또는 실패 → 앱이 BLE 로 첫 자격증명을 보낼 때까지 대기 ----
+     * 이미 연결됐으면 기다리지 않고 바로 진행. 어느 경우든 BLE 는 계속 살아 있어
+     * 이후 재설정 자격증명을 받을 수 있다(세마포어/BLE 정리하지 않음). */
     if (!wifi_connected) {
-        s_prov_done = xSemaphoreCreateBinary();
-
-        ESP_ERROR_CHECK(ble_prov_init());
-        ESP_ERROR_CHECK(ble_prov_start(on_ble_connected, on_ble_scan_request,
-                                       on_ble_credentials));
-
-        ESP_LOGI(TAG, "BLE 프로비저닝 대기 중 — 앱에서 'ESP32-CAM' 에 연결하세요");
-
-        /* 자격증명 수신 후 WiFi 연결 성공까지 대기 */
+        ESP_LOGI(TAG, "BLE 프로비저닝 대기 중 — 앱에서 WiFi 정보를 전송하세요");
         xSemaphoreTake(s_prov_done, portMAX_DELAY);
-
-        /* BLE 종료 후 HTTP 서버 시작 */
-        ble_prov_stop();
-        vSemaphoreDelete(s_prov_done);
     }
 
     /* ---- WiFi 연결 완료 → 카메라 초기화 ---- */
