@@ -1,0 +1,19 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "camera_module.c"
+        "http_server.c"
+        "wifi_manager.c"
+        "ble_prov.c"
+    PRIV_REQUIRES
+        spi_flash
+        nvs_flash
+        esp_wifi
+        esp_event
+        esp_netif
+        esp_http_server
+        esp32-camera
+        bt
+    INCLUDE_DIRS
+        "."
+)

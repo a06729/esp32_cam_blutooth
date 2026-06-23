@@ -1,0 +1,5 @@
+## IDF Component Manager: 빌드 시 esp32-camera 컴포넌트를 자동 다운로드합니다.
+dependencies:
+  espressif/esp32-camera: "^2.0.0"
+  idf:
+    version: ">=5.0"

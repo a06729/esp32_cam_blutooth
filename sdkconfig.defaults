@@ -1,0 +1,37 @@
+# ===== ESP32-S3 OV2640 스트리밍용 권장 설정 =====
+# 적용 방법: 기존 sdkconfig 삭제 후 재빌드 (idf.py 가 이 defaults 를 반영)
+#   rm sdkconfig ; idf.py build
+
+# --- PSRAM (카메라 프레임버퍼에 필요) ---
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+
+# --- CPU 240MHz (스트리밍 프레임레이트 향상) ---
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# --- 플래시 ---
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+
+# --- 파티션 (앱 크기 여유 확보) ---
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# --- HTTP 서버 헤더 길이 여유 ---
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+
+# --- 진단: 카메라 PID 등 DEBUG 로그를 보기 위해 (확인 후 INFO 로 되돌려도 됨) ---
+CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
+
+# --- BLE (NimBLE) + WiFi 공존 ---
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+# Bluedroid 비활성화 (NimBLE 사용)
+# CONFIG_BT_BLUEDROID_ENABLED is not set
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+# WiFi + BLE 소프트웨어 공존 활성화
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
