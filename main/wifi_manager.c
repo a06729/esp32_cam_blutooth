@@ -83,10 +83,6 @@ esp_err_t wifi_manager_scan(wifi_ap_info_t *ap_list, uint16_t *ap_count)
 
 esp_err_t wifi_manager_connect(const char *ssid, const char *password)
 {
-    /* 재설정으로 다른 AP 에 다시 연결할 때 깔끔히 끊고 시작한다.
-     * 아직 연결돼 있지 않으면 무시되는 호출이라 안전하다. */
-    esp_wifi_disconnect();
-
     s_evt_group = xEventGroupCreate();
     s_retry_num = 0;
 
@@ -105,7 +101,16 @@ esp_err_t wifi_manager_connect(const char *ssid, const char *password)
     }
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
-    ESP_ERROR_CHECK(esp_wifi_connect());
+
+    /* 다른 AP 로 바꾸는 재설정이면 기존 연결을 먼저 끊는다. 새 config 가 이미
+     * 적용돼 있어, 끊긴 뒤 자동 재시도해도 새 AP 로 붙는다. 연결돼 있지 않으면
+     * 무시된다. esp_wifi_connect 는 끊는 도중이면 일시적으로 실패할 수 있으므로
+     * ESP_ERROR_CHECK 로 abort 시키지 않고, 재시도 핸들러/대기에 맡긴다. */
+    esp_wifi_disconnect();
+    esp_err_t conn = esp_wifi_connect();
+    if (conn != ESP_OK) {
+        ESP_LOGW(TAG, "esp_wifi_connect 초기 호출 0x%x — 자동 재시도 대기", conn);
+    }
 
     ESP_LOGI(TAG, "연결 시도: %s", ssid);
 
