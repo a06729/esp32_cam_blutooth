@@ -40,29 +40,34 @@ static void scan_and_notify_task(void *arg)
     uint16_t ap_count = 0;
 
     if (wifi_manager_scan(ap_list, &ap_count) != ESP_OK) {
-        ble_prov_notify_wifi_list("[]");
+        ble_prov_notify_wifi_list("END\n");
         vTaskDelete(NULL);
         return;
     }
 
-    /* JSON 직렬화: [{"ssid":"...","rssi":-65,"auth":1}, ...] */
-    char json[WIFI_SCAN_MAX_AP * 60 + 8];
-    int pos = 0;
-    pos += snprintf(json + pos, sizeof(json) - pos, "[");
+    /* 앱 프로토콜: 한 줄당 네트워크 1개 JSON('\n' 구분), 마지막에 "END\n".
+     * 한 번에 한 줄씩 notify 하고, 청크 사이에 약간의 간격을 둬 버퍼 넘침을 막는다. */
+    char line[96];
     for (uint16_t i = 0; i < ap_count; i++) {
-        if (i > 0) pos += snprintf(json + pos, sizeof(json) - pos, ",");
-        pos += snprintf(json + pos, sizeof(json) - pos,
-                        "{\"ssid\":\"%s\",\"rssi\":%d,\"auth\":%d}",
-                        ap_list[i].ssid, ap_list[i].rssi, ap_list[i].auth_required);
+        snprintf(line, sizeof(line),
+                 "{\"ssid\":\"%s\",\"rssi\":%d,\"secure\":%s}\n",
+                 ap_list[i].ssid, ap_list[i].rssi,
+                 ap_list[i].auth_required ? "true" : "false");
+        ble_prov_notify_wifi_list(line);
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
-    pos += snprintf(json + pos, sizeof(json) - pos, "]");
+    ble_prov_notify_wifi_list("END\n");
 
     ESP_LOGI(TAG, "WiFi 목록 전송: %d 개", ap_count);
-    ble_prov_notify_wifi_list(json);
     vTaskDelete(NULL);
 }
 
 static void on_ble_connected(void)
+{
+    ESP_LOGI(TAG, "BLE 연결됨 — 앱의 WiFi 스캔 요청 대기");
+}
+
+static void on_ble_scan_request(void)
 {
     /* BLE 콜백 컨텍스트에서 바로 스캔하면 안 되므로 별도 태스크 생성 */
     xTaskCreate(scan_and_notify_task, "wifi_scan", 4096, NULL, 5, NULL);
@@ -80,8 +85,8 @@ static void connect_wifi_task(void *arg)
 {
     cred_t *cred = (cred_t *)arg;
 
-    /* ⚠️ 아래 상태 문자열은 앱의 WifiStatus 값과 일치해야 합니다. 앱 코드 확인! */
-    ble_prov_notify_status("connecting");
+    /* ⚠️ 아래 상태 문자열은 앱의 WifiStatus enum 값(대문자)과 일치해야 합니다. */
+    ble_prov_notify_status("CONNECTING");
 
     esp_err_t err = wifi_manager_connect(cred->ssid, cred->pass);
     if (err == ESP_OK) {
@@ -91,11 +96,7 @@ static void connect_wifi_task(void *arg)
         wifi_manager_get_ip(ip, sizeof(ip));
         ESP_LOGI(TAG, "WiFi 연결 성공, IP=%s", ip);
 
-        /* 앱이 IP 가 필요하면 "connected:192.168.x.x" 형태로 보낼 수도 있음.
-         * 앱이 단순 "connected" 만 기대하면 ip 부분은 빼세요. */
-        char status[40];
-        snprintf(status, sizeof(status), "connected:%s", ip);
-        ble_prov_notify_status(status);
+        ble_prov_notify_status("CONNECTED");
 
         /* 알림이 앱에 전달될 시간 확보 */
         vTaskDelay(pdMS_TO_TICKS(800));
@@ -103,7 +104,7 @@ static void connect_wifi_task(void *arg)
         /* app_main 을 깨워 HTTP 서버 시작 */
         xSemaphoreGive(s_prov_done);
     } else {
-        ble_prov_notify_status("failed");
+        ble_prov_notify_status("FAILED");
         ESP_LOGW(TAG, "연결 실패 — 앱에서 다시 시도하세요");
     }
 
@@ -169,7 +170,8 @@ void app_main(void)
         s_prov_done = xSemaphoreCreateBinary();
 
         ESP_ERROR_CHECK(ble_prov_init());
-        ESP_ERROR_CHECK(ble_prov_start(on_ble_connected, on_ble_credentials));
+        ESP_ERROR_CHECK(ble_prov_start(on_ble_connected, on_ble_scan_request,
+                                       on_ble_credentials));
 
         ESP_LOGI(TAG, "BLE 프로비저닝 대기 중 — 앱에서 'ESP32-CAM' 에 연결하세요");
 

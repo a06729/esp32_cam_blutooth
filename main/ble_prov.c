@@ -30,7 +30,7 @@ static const char *TAG = "ble_prov";
     0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12)
 
 static const ble_uuid128_t PROV_SVC_UUID   = UUID128_BASE(0xf0);  /* 서비스 */
-static const ble_uuid128_t WIFI_LIST_UUID  = UUID128_BASE(0xf4);  /* WiFi 목록 (read/notify) */
+static const ble_uuid128_t WIFI_LIST_UUID  = UUID128_BASE(0xf4);  /* WiFi 목록 ("SCAN" write / notify) */
 static const ble_uuid128_t SSID_UUID       = UUID128_BASE(0xf1);  /* SSID (write) */
 static const ble_uuid128_t PASS_UUID       = UUID128_BASE(0xf2);  /* 비밀번호 (write) */
 static const ble_uuid128_t STATUS_UUID     = UUID128_BASE(0xf3);  /* 상태 (read/notify) */
@@ -44,8 +44,9 @@ static uint16_t s_wifi_list_val_hdl  = 0;
 static uint16_t s_status_val_hdl     = 0;
 static uint8_t  s_own_addr_type      = 0;  /* sync 시 자동 추론된 주소 타입 */
 
-static ble_on_connected_cb_t  s_on_connected  = NULL;
-static ble_on_credentials_cb_t s_on_credentials = NULL;
+static ble_on_connected_cb_t     s_on_connected    = NULL;
+static ble_on_scan_request_cb_t  s_on_scan_request = NULL;
+static ble_on_credentials_cb_t   s_on_credentials  = NULL;
 
 static char s_wifi_list_buf[WIFI_LIST_BUF_SIZE] = "[]";
 static char s_status_buf[STATUS_BUF_SIZE]        = "";
@@ -68,12 +69,22 @@ static void read_chr_value(struct ble_gatt_access_ctxt *ctxt,
 /* ------------------------------------------------------------------ */
 /* GATT 접근 콜백                                                      */
 /* ------------------------------------------------------------------ */
-/* WiFi 목록: 앱이 read 하면 마지막 스캔 결과(JSON) 반환 */
+/* WiFi 목록: 앱이 "SCAN" 을 write 하면 스캔을 트리거하고, read 하면 마지막 결과 반환 */
 static int wifi_list_access_cb(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
-    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+    switch (ctxt->op) {
+    case BLE_GATT_ACCESS_OP_READ_CHR:
         os_mbuf_append(ctxt->om, s_wifi_list_buf, strlen(s_wifi_list_buf));
+        break;
+    case BLE_GATT_ACCESS_OP_WRITE_CHR:
+        /* 페이로드("SCAN")는 무시하고 스캔만 트리거 */
+        if (s_on_scan_request) {
+            s_on_scan_request();
+        }
+        break;
+    default:
+        break;
     }
     return 0;
 }
@@ -129,7 +140,8 @@ static const struct ble_gatt_svc_def s_gatt_svcs[] = {
                 .uuid       = &WIFI_LIST_UUID.u,
                 .access_cb  = wifi_list_access_cb,
                 .val_handle = &s_wifi_list_val_hdl,
-                .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY |
+                              BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
             },
             {
                 .uuid      = &SSID_UUID.u,
@@ -273,11 +285,13 @@ esp_err_t ble_prov_init(void)
     return ESP_OK;
 }
 
-esp_err_t ble_prov_start(ble_on_connected_cb_t  on_connected,
-                         ble_on_credentials_cb_t on_credentials)
+esp_err_t ble_prov_start(ble_on_connected_cb_t    on_connected,
+                         ble_on_scan_request_cb_t on_scan_request,
+                         ble_on_credentials_cb_t  on_credentials)
 {
-    s_on_connected   = on_connected;
-    s_on_credentials = on_credentials;
+    s_on_connected    = on_connected;
+    s_on_scan_request = on_scan_request;
+    s_on_credentials  = on_credentials;
     nimble_port_freertos_init(ble_host_task);
     return ESP_OK;
 }
