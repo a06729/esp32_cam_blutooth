@@ -1,5 +1,6 @@
 #include "ble_prov.h"
 #include "esp_log.h"
+#include "esp_mac.h"          /* esp_read_mac: 칩 고유 MAC 읽기 (device_key 생성용) */
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
@@ -71,6 +72,7 @@ static const ble_uuid128_t WIFI_LIST_UUID  = UUID128_BASE(0xf4);  /* WiFi 목록
 static const ble_uuid128_t SSID_UUID       = UUID128_BASE(0xf1);  /* SSID (write) */
 static const ble_uuid128_t PASS_UUID       = UUID128_BASE(0xf2);  /* 비밀번호 (write) */
 static const ble_uuid128_t STATUS_UUID     = UUID128_BASE(0xf3);  /* 상태 (read/notify) */
+static const ble_uuid128_t DEVICE_ID_UUID  = UUID128_BASE(0xf5);  /* 기기 고유 ID = MAC (read) */
 
 #define DEVICE_NAME         "ESP32-CAM"
 #define WIFI_LIST_BUF_SIZE  512
@@ -81,6 +83,20 @@ static uint16_t s_conn_handle        = BLE_HS_CONN_HANDLE_NONE; /* 현재 연결
 static uint16_t s_wifi_list_val_hdl  = 0;  /* WIFI_LIST 특성의 핸들(내부 주소). notify 보낼 때 필요 */
 static uint16_t s_status_val_hdl     = 0;  /* STATUS 특성의 핸들. notify 보낼 때 필요 */
 static uint8_t  s_own_addr_type      = 0;  /* 내 BLE 주소 종류(public/random). sync 때 자동 결정 */
+
+/* 기기 고유 ID. 공장에서 구워진 WiFi MAC(칩마다 다름)을 콜론 없는 12자리 대문자
+ * 16진수 문자열로 만든다. 예) "E86BEA123456". 펌웨어는 모든 기기가 동일하지만
+ * 이 값은 칩마다 달라서 서버의 device_key(장비 식별자)로 그대로 쓸 수 있다.
+ * (하드코딩이 아니라 런타임에 칩에서 읽는 값) */
+static char s_device_id[13] = { 0 };
+
+static void ble_prov_build_device_id(void)
+{
+    uint8_t mac[6] = { 0 };
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);   /* STA MAC: 칩 고유, 어디서 읽어도 동일 */
+    snprintf(s_device_id, sizeof(s_device_id), "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
 
 /* 콜백 함수 포인터: 사건이 생기면 'main.c 가 등록해 둔 함수'를 대신 호출한다.
  * (이 파일은 BLE 통신만 담당, '무엇을 할지'는 main.c 가 결정 → 역할 분리) */
@@ -188,6 +204,17 @@ static int status_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
+/* [DEVICE_ID 특성] 폰이 read 하면 이 기기의 고유 ID(MAC 문자열)를 돌려준다.
+ * 앱은 이 값을 device_key 로 삼아, 설치 위치(GPS)와 함께 서버에 등록한다. */
+static int device_id_access_cb(uint16_t conn_handle, uint16_t attr_handle,
+                               struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        os_mbuf_append(ctxt->om, s_device_id, strlen(s_device_id));
+    }
+    return 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* GATT 서비스 테이블                                                   */
 /* ------------------------------------------------------------------ */
@@ -226,6 +253,11 @@ static const struct ble_gatt_svc_def s_gatt_svcs[] = {
                 .access_cb  = status_access_cb,
                 .val_handle = &s_status_val_hdl,     /* notify 용 핸들 받기 */
                 .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+            },
+            {   /* DEVICE_ID: 폰이 read → 기기 고유 ID(MAC) 반환. 등록(device_key)용 */
+                .uuid      = &DEVICE_ID_UUID.u,
+                .access_cb = device_id_access_cb,
+                .flags     = BLE_GATT_CHR_F_READ,
             },
             { 0 }   /* ← 특성 목록의 끝 */
         },
@@ -352,6 +384,9 @@ static void ble_host_task(void *param)
  * NimBLE 켜기 → 기본 서비스(GAP/GATT) 등록 → 우리 서비스 표 등록 → sync 콜백 지정. */
 esp_err_t ble_prov_init(void)
 {
+    ble_prov_build_device_id();               /* 기기 고유 ID(MAC) 준비 */
+    ESP_LOGI(TAG, "기기 ID(device_key) = %s", s_device_id);
+
     esp_err_t err = nimble_port_init();   /* NimBLE 스택 초기화 */
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "nimble_port_init 실패: %d", err);
@@ -399,6 +434,15 @@ void ble_prov_stop(void)
     nimble_port_stop();    /* 이벤트 루프 중지 */
     nimble_port_deinit();  /* 스택 해제 */
     ESP_LOGI(TAG, "BLE 종료");
+}
+
+/* 이 기기의 고유 ID(MAC 문자열)를 반환. 서버 등록(device_key)이나 MQTT 등에서 재사용. */
+const char *ble_prov_get_device_id(void)
+{
+    if (s_device_id[0] == '\0') {
+        ble_prov_build_device_id();   /* init 전 호출 대비 */
+    }
+    return s_device_id;
 }
 
 /* ble_prov_notify_wifi_list: WiFi 목록(JSON 한 줄)을 폰으로 'notify' 전송.

@@ -9,6 +9,7 @@
  *   SSID_CHAR        WRITE          - 앱이 WiFi 이름(SSID)을 write
  *   PASS_CHAR        WRITE          - 앱이 WiFi 비밀번호를 write
  *   STATUS_CHAR      READ | NOTIFY  - ESP32가 연결 결과 문자열을 notify
+ *   DEVICE_ID_CHAR   READ           - 앱이 기기 고유 ID(MAC)를 read → device_key 로 사용
  *
  * 앱 동작 흐름:
  *   1) BLE 연결 → WIFI_LIST_CHAR 구독 → "SCAN" write → ESP32가 스캔해서 목록 전송
@@ -33,6 +34,10 @@ esp_err_t ble_prov_start(ble_on_connected_cb_t    on_connected,
                          ble_on_scan_request_cb_t on_scan_request,
                          ble_on_credentials_cb_t  on_credentials);
 void      ble_prov_stop(void);
+
+/* 이 기기의 고유 ID(MAC 문자열, 콜론 없는 12자리 대문자 16진수)를 반환.
+ * 서버 등록 시 device_key 로 쓰거나, MQTT/HTTP 보고에 재사용한다. */
+const char *ble_prov_get_device_id(void);
 
 /* WiFi 목록 JSON을 앱에 알림 전송 */
 void ble_prov_notify_wifi_list(const char *json);
