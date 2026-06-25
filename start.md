@@ -1,0 +1,1 @@
+mosquitto -c ~/mosquitto-lan.conf -v

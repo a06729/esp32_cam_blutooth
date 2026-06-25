@@ -5,6 +5,7 @@ idf_component_register(
         "http_server.c"
         "wifi_manager.c"
         "ble_prov.c"
+        "mqtt_cam.c"
     PRIV_REQUIRES
         spi_flash
         nvs_flash
@@ -13,6 +14,7 @@ idf_component_register(
         esp_netif
         esp_http_server
         esp32-camera
+        mqtt
         bt
     INCLUDE_DIRS
         "."

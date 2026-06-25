@@ -25,6 +25,7 @@
 #include "http_server.h"
 #include "wifi_manager.h"
 #include "ble_prov.h"
+#include "mqtt_cam.h"
 
 static const char *TAG = "main";
 
@@ -188,15 +189,24 @@ void app_main(void)
     ESP_LOGI(TAG, "WiFi 연결됨. IP: %s", ip);
 
     if (camera_module_init() != ESP_OK) {
-        ESP_LOGE(TAG, "카메라 초기화 실패 — 스트림은 동작하지 않지만 서버는 계속 실행");
+        ESP_LOGE(TAG, "카메라 초기화 실패 — 캡처는 동작하지 않지만 서버는 계속 실행");
     }
 
-    /* ---- HTTP 스트리밍 서버 시작 ---- */
+    /* ---- MQTT 카메라 클라이언트 시작 ----
+     * FastAPI 서버(=브로커)로 접속해 'capture' 명령을 받으면 한 장 찍어
+     * esp32cam/image 토픽으로 JPEG 를 전송한다. (메인 경로) */
+    if (mqtt_cam_start() != ESP_OK) {
+        ESP_LOGE(TAG, "MQTT 시작 실패 — 브로커 주소(MQTT_BROKER_URI)를 확인하세요");
+    }
+
+    /* ---- HTTP 서버 시작 (선택: 로컬 디버그용 스트림/정지영상) ----
+     * MQTT 가 메인 경로지만, 브라우저에서 직접 확인할 수 있게 유지한다. */
+    /*
     httpd_handle_t server = http_server_start();
     if (!server) {
-        ESP_LOGE(TAG, "HTTP 서버 시작 실패");
-        return;
+        ESP_LOGW(TAG, "HTTP 서버 시작 실패 (MQTT 동작에는 영향 없음)");
     }
+    */
 
-    ESP_LOGI(TAG, "준비 완료 — http://%s/ 에서 스트림을 확인하세요", ip);
+    //ESP_LOGI(TAG, "준비 완료 — MQTT 캡처 대기 중. 디버그: http://%s/", ip);
 }
