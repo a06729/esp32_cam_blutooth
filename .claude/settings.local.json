@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Read(//d/esp/v6.0.1/esp-idf/**)",
-      "Read(//d/esp/v6.0.1/**)"
+      "Read(//d/esp/v6.0.1/**)",
+      "Bash(python *)"
     ]
   }
 }

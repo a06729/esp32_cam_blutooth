@@ -51,3 +51,21 @@ Please use the following feedback channels:
 * For a feature request or bug report, create a [GitHub issue](https://github.com/espressif/esp-idf/issues)
 
 We will get back to you as soon as possible.
+
+# 환경변수 예시
+
+menu "ESP32-CAM 애플리케이션 설정"
+
+    config MQTT_BROKER_URI
+        string "MQTT 브로커 주소 (URI)"
+        default "mqtt://192.168.0.10:1883"
+        help
+            FastAPI 서버(=MQTT 브로커)가 떠 있는 PC 의 주소입니다.
+            예) "mqtt://192.168.0.10:1883"
+
+            이 값은 sdkconfig 에 저장되며(.gitignore 에 포함되어 커밋되지 않음),
+            `idf.py menuconfig` 의
+            "ESP32-CAM 애플리케이션 설정" 메뉴에서 바꿀 수 있습니다.
+
+endmenu
+
