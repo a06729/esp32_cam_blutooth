@@ -26,6 +26,7 @@
 #include "wifi_manager.h"
 #include "ble_prov.h"
 #include "mqtt_cam.h"
+#include "protocol.h"
 
 static const char *TAG = "main";
 
@@ -198,6 +199,9 @@ void app_main(void)
     if (mqtt_cam_start() != ESP_OK) {
         ESP_LOGE(TAG, "MQTT 시작 실패 — 브로커 주소(MQTT_BROKER_URI)를 확인하세요");
     }
+
+    protocol_uart_init();
+
 
     /* ---- HTTP 서버 시작 (선택: 로컬 디버그용 스트림/정지영상) ----
      * MQTT 가 메인 경로지만, 브라우저에서 직접 확인할 수 있게 유지한다. */

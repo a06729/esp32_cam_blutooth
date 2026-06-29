@@ -6,6 +6,7 @@ idf_component_register(
         "wifi_manager.c"
         "ble_prov.c"
         "mqtt_cam.c"
+        "protocol.c"
     PRIV_REQUIRES
         spi_flash
         nvs_flash
@@ -16,6 +17,9 @@ idf_component_register(
         esp32-camera
         mqtt
         bt
+        driver
+        esp_driver_uart
+        esp_driver_gpio
     INCLUDE_DIRS
         "."
 )
