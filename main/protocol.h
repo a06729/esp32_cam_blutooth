@@ -40,11 +40,18 @@
 #define PROTOCOL_UART_RXD       2
 #define PROTOCOL_UART_BAUD      115200
 
+#define ADDR_MOTOR          0x01   // 모터
+#define ADDR_LED            0x02   // LED
+
+
 uint8_t calculate_checksum(const uint8_t *buffer, uint8_t length);
+
 void    send_response(uint8_t slave_id, uint8_t cmd, uint8_t addr, uint8_t data);
 void    process_packet(const uint8_t *buffer, uint8_t length);
 
 // UART 초기화 + 수신 태스크 시작
 void    protocol_uart_init(void);
+
+void protocol_set_tx_value(uint8_t cmd, uint8_t addr, uint8_t data);
 
 #endif // PROTOCOL_H

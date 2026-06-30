@@ -5,12 +5,51 @@
 #include "driver/uart.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "freertos/semphr.h"
 
 #include "protocol.h"
 
+// TX 태스크가 2초마다 보낼 "현재 값"
+typedef struct {
+    uint8_t cmd;    // 'W' / 'R'
+    uint8_t addr;
+    uint8_t data;
+} tx_payload_t;
+
 static const char *TAG = "PROTOCOL";
+static tx_payload_t  g_tx_payload = { 'W', 0x01, 0x00 };  // 기본값
+static SemaphoreHandle_t g_tx_mutex = NULL;
 
 static int32_t g_device_registers[16] = {0};
+
+void protocol_set_tx_value(uint8_t cmd, uint8_t addr,uint8_t data){
+    if(g_tx_mutex == NULL) return;
+    xSemaphoreTake(g_tx_mutex,portMAX_DELAY);
+    g_tx_payload.cmd=cmd;
+    g_tx_payload.addr=addr;
+    g_tx_payload.data=data;
+    xSemaphoreGive(g_tx_mutex);
+}
+
+static tx_payload_t protocol_get_tx_value(void){
+    tx_payload_t p;
+    xSemaphoreTake(g_tx_mutex,portMAX_DELAY);
+    p=g_tx_payload;
+    xSemaphoreGive(g_tx_mutex);
+    return p;
+}
+
+static void debug_hex_dump(const char *prefix,const uint8_t *buf,uint8_t len){
+    char line [PROTOCOL_BUFFER_SIZE*3+1];
+    int pos =0;
+
+    for(uint8_t i=0; i<len && pos<(int)sizeof(line)-3; i++){
+        pos +=sprintf(&line[pos],"%02X",buf[i]);
+    }
+    line[pos]='\0';
+
+    ESP_LOGI(TAG,"%s (%d bytes):%s",prefix,len,line);
+}
 
 /**
  * @param buffer '$'를 제외한 데이터(ID부터 Checksum 앞까지)
@@ -91,15 +130,22 @@ void send_response(uint8_t slave_id, uint8_t cmd, uint8_t addr, uint8_t data){
 
     calculated_checksum = calculate_checksum(&buffer[1],data_len_for_checksum);
 
+
+
     if(received_checksum != calculated_checksum){
           ESP_LOGW(TAG, "checksum error: rx=0x%02X calc=0x%02X", received_checksum, calculated_checksum);
           return;
     }
 
+    debug_hex_dump("VALID FRAME", buffer, length);
+    ESP_LOGI(TAG, "VALID: slave=0x%02X cmd='%c' addr=%d",
+             slave_id, cmd, addr);
+
     uint8_t data_8bit =0;
 
     if(cmd == 'W'){
         data_8bit = buffer [FRAME_IDX_W_DATA];
+        ESP_LOGI(TAG, "  -> WRITE data=0x%02X (%d)", data_8bit, data_8bit);
 
         if(addr == 1){}
         else if(addr == 2){}
@@ -110,15 +156,43 @@ void send_response(uint8_t slave_id, uint8_t cmd, uint8_t addr, uint8_t data){
         }
 
         // 'W' 응답
-        send_response(slave_id, cmd, addr, data_8bit);
+        //send_response(slave_id, cmd, addr, data_8bit);
 
     }else{
         if(addr < 16){
             data_8bit = g_device_registers[addr];
         }
-        send_response(slave_id,cmd,addr,data_8bit);
+        ESP_LOGI(TAG, "  -> READ  data=0x%02X (%d)", data_8bit, data_8bit);
+        //send_response(slave_id,cmd,addr,data_8bit);
     }
  }
+
+ /*
+    디버깅을 위한 tx task
+    2초마다 값을 계속 전송하는 기능으로 구현
+ */
+static void uart_tx_task(void *arg){
+    while (1)
+    {
+        tx_payload_t p=protocol_get_tx_value();
+
+        send_response(MY_SLAVE_ID,p.cmd,ADDR_LED,0x01);
+
+        ESP_LOGI(TAG, "TX every 2s: cmd='%c' addr=%d data=0x%02X",
+                 p.cmd, ADDR_LED, 0x01);
+
+        vTaskDelay(pdMS_TO_TICKS(2000));   // 2초 간격
+
+        send_response(MY_SLAVE_ID,p.cmd,ADDR_MOTOR,0x01);
+
+        ESP_LOGI(TAG, "TX every 2s: cmd='%c' addr=%d data=0x%02X",
+                 p.cmd, ADDR_MOTOR, 0x01);
+        
+        vTaskDelay(pdMS_TO_TICKS(2000));   // 2초 간격
+
+    }
+    
+}
 
  static void uart_rx_task(void *arg){
     uint8_t byte;
@@ -143,6 +217,7 @@ void send_response(uint8_t slave_id, uint8_t cmd, uint8_t addr, uint8_t data){
                     idx=0;
                 }
             }else{
+                ESP_LOGW(TAG, "frame overflow, reset");
                 in_frame=false;
                 idx=0;
             }
@@ -177,8 +252,16 @@ void send_response(uint8_t slave_id, uint8_t cmd, uint8_t addr, uint8_t data){
         )
     );
 
+    g_tx_mutex = xSemaphoreCreateMutex();
+
+
     xTaskCreate(uart_rx_task,"uart_rx_task",4096,NULL,10,NULL);
     
+    /*
+        디버깅을 위한 tx task
+    */
+    xTaskCreate(uart_tx_task, "uart_tx_task", 4096, NULL, 10, NULL);
+
     ESP_LOGI(TAG, "UART%d init done (TX=%d RX=%d, %d bps)",
              PROTOCOL_UART_NUM, PROTOCOL_UART_TXD, PROTOCOL_UART_RXD,
              PROTOCOL_UART_BAUD);
