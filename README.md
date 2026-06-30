@@ -84,17 +84,66 @@ R (읽기, 6바이트):  $  ID  'R'  ADDR        CHK  \n
 
 ---
 
-## 4. 환경 설정 (menuconfig)
+## 4. 환경 설정 (menuconfig / MQTT 브로커 주소)
 
-`idf.py menuconfig` → **"ESP32-CAM 애플리케이션 설정"** 에서 MQTT 브로커 주소를 지정합니다.
+이 프로젝트는 MQTT 브로커(=FastAPI 서버) 주소를 **코드에 하드코딩하지 않고**
+Kconfig 설정 항목으로 분리해 둡니다. 그래서 **개인 IP 가 저장소에 노출되지 않으며**,
+받는 사람마다 자기 환경의 주소를 넣어 동작시킬 수 있습니다.
 
+### 동작 방식 — IP 가 어디에 저장되나
+
+| 파일 | 역할 | git 추적 |
+| ---- | ---- | -------- |
+| `main/Kconfig.projbuild` | 설정 **항목의 정의**와 *예시* 기본값(`mqtt://192.168.0.10:1883`) | ✅ 커밋됨 (예시 IP 뿐) |
+| `sdkconfig` | `menuconfig` 로 입력한 **실제 IP** 가 저장되는 곳 | ❌ `.gitignore` (커밋 안 됨) |
+
+→ **실제 IP 는 `sdkconfig` 에만 들어가고 이 파일은 커밋되지 않으므로**,
+저장소에는 항상 예시 주소만 남습니다.
+
+### `main/Kconfig.projbuild` 작성 예시
+
+```kconfig
+menu "ESP32-CAM 애플리케이션 설정"
+
+    config MQTT_BROKER_URI
+        string "MQTT 브로커 주소 (URI)"
+        default "mqtt://192.168.0.10:1883"   # ← 실제 IP 말고 예시 주소만 둔다
+        help
+            FastAPI 서버(=MQTT 브로커)가 떠 있는 PC 의 주소입니다.
+            예) "mqtt://192.168.0.10:1883"
+
+            실제 주소는 `idf.py menuconfig` →
+            "ESP32-CAM 애플리케이션 설정" 메뉴에서 입력하며,
+            그 값은 sdkconfig 에 저장됩니다(.gitignore 에 포함되어 커밋되지 않음).
+
+endmenu
 ```
-config MQTT_BROKER_URI
-    string "MQTT 브로커 주소 (URI)"
-    default "mqtt://192.168.0.10:1883"
-```
 
-> 이 값은 `sdkconfig` 에 저장되며 `.gitignore` 에 포함되어 커밋되지 않습니다.
+> ⚠️ `default` 에는 **개인 IP 를 절대 쓰지 마세요.** 예시 사설망 주소(`192.168.x.x`)만 둡니다.
+> 실제 주소는 아래 절차대로 menuconfig 에서 입력합니다.
+
+### 처음 받은 사람이 동작시키는 방법
+
+1. 저장소 클론 후 타깃 지정
+   ```bash
+   idf.py set-target esp32s3
+   ```
+2. 자기 환경의 MQTT 브로커 주소 입력
+   ```bash
+   idf.py menuconfig
+   ```
+   → **ESP32-CAM 애플리케이션 설정 → MQTT 브로커 주소 (URI)** 에서
+   `mqtt://<본인 서버 IP>:1883` 으로 수정 후 저장
+   (입력값은 `sdkconfig` 에만 저장되어 커밋되지 않음)
+3. 빌드 / 플래시
+   ```bash
+   idf.py build
+   idf.py -p <PORT> flash monitor
+   ```
+
+> menuconfig 가 번거롭다면, 추적되는 `sdkconfig.defaults` 파일에
+> `CONFIG_MQTT_BROKER_URI="mqtt://192.168.0.10:1883"` 한 줄로 예시 기본값을 둘 수도 있습니다.
+> (이때도 실제 IP 는 적지 말고 예시만)
 
 ---
 

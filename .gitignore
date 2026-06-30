@@ -71,10 +71,11 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
+
+Kconfig.projbuild
+
 # User-specific configuration files
 *.user
 *.workspace # General workspace files, can be from various tools
 *.suo       # Visual Studio Solution User Options
 *.sln.docstates # Visual Studio
-
-Kconfig.projbuild
