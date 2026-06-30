@@ -1,71 +1,136 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-H21 | ESP32-H4 | ESP32-P4 | ESP32-S2 | ESP32-S3 | Linux |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | --------- | -------- | -------- | -------- | -------- | ----- |
+| Supported Targets | ESP32-S3 |
+| ----------------- | -------- |
 
-# Hello World Example
+# ESP32-CAM : BLE 프로비저닝 + MJPEG 스트리밍 + MQTT + UART 프로토콜
 
-Starts a FreeRTOS task to print "Hello World".
+ESP32-S3 + OV2640 카메라 기반 펌웨어입니다.
+BLE 로 WiFi 를 설정하고, 연결되면 카메라 영상을 MQTT(또는 HTTP)로 전송하며,
+별도의 UART 채널로 외부 장치(Basys3 FPGA 등)와 사용자 정의 프로토콜로 통신합니다.
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+---
 
-## How to use example
+## 1. 주요 기능
 
-Follow detailed instructions provided specifically for this example.
+| 기능 | 설명 | 소스 |
+| ---- | ---- | ---- |
+| **BLE WiFi 프로비저닝** | 앱이 BLE 로 연결 → WiFi 목록 전송 → SSID/PW 수신 → 연결. 연결 후에도 광고를 유지해 언제든 재설정 가능 | `ble_prov.c/.h` |
+| **WiFi 관리** | NVS 에 자격증명 저장/로드, 스캔, 연결, IP 조회 | `wifi_manager.c/.h` |
+| **카메라** | OV2640 초기화 및 JPEG 캡처 | `camera_module.c/.h`, `camera_pins.h` |
+| **MQTT 전송 (메인 경로)** | 브로커의 `capture` 명령 수신 시 한 장 찍어 `esp32cam/image` 토픽으로 JPEG 전송 | `mqtt_cam.c/.h` |
+| **HTTP 스트리밍 (디버그용)** | `/` 뷰어, `/stream` MJPEG, `/jpg` 정지영상 (현재 main 에서 주석 처리) | `http_server.c/.h` |
+| **UART 프로토콜** | UART2 로 외부 장치와 `$...\n` 프레임 송수신 (W/R 명령), USB 시리얼 모니터로 디버깅 | `protocol.c/.h` |
 
-Select the instructions depending on Espressif chip installed on your development board:
+---
 
-- [ESP32 Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/stable/get-started/index.html)
-- [ESP32-S2 Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/index.html)
+## 2. 부팅 동작 순서 (`main/main.c`)
 
+1. NVS / 네트워크 / 이벤트 루프 초기화
+2. WiFi 드라이버 초기화 (연결은 아직 안 함)
+3. **BLE 프로비저닝 시작** — `"ESP32-CAM"` 으로 광고 (성공 후에도 계속 유지)
+4. NVS 에 저장된 자격증명이 있으면 **자동 연결** 시도
+5. 저장 정보가 없거나 실패하면 앱이 BLE 로 자격증명을 보낼 때까지 대기
+6. WiFi 연결 완료 → **카메라 초기화**
+7. **MQTT 클라이언트 시작** (`mqtt_cam_start()`)
+8. **UART 프로토콜 초기화** (`protocol_uart_init()`)
+9. (선택) HTTP 서버 — 현재 주석 처리되어 있음
 
-## Example folder contents
+---
 
-The project **hello_world** contains one source file in C language [hello_world_main.c](main/hello_world_main.c). The file is located in folder [main](main).
+## 3. UART 프로토콜 (`main/protocol.c` / `protocol.h`)
 
-ESP-IDF projects are built using CMake. The project build configuration is contained in `CMakeLists.txt` files that provide set of directives and instructions describing the project's source files and targets (executable, library, or both).
+ESP32 가 **Slave**, 외부 장치(Basys3 등)가 **Master** 인 단순 프레임 프로토콜입니다.
 
-Below is short explanation of remaining files in the project folder.
+### 핀 / 설정
+
+| 항목 | 값 |
+| ---- | ---- |
+| UART 포트 | `UART_NUM_2` |
+| TX 핀 | GPIO 1 |
+| RX 핀 | GPIO 2 |
+| Baud | 115200 |
+| Slave ID | `0x01` |
+
+> 디버그 로그(`ESP_LOGx`)는 **USB 콘솔(UART0)** 로 나가므로, `idf.py monitor` 시리얼 모니터에서 확인합니다.
+
+### 프레임 포맷
+
+```
+W (쓰기, 7바이트):  $  ID  'W'  ADDR  DATA  CHK  \n
+R (읽기, 6바이트):  $  ID  'R'  ADDR        CHK  \n
+```
+
+- `CHK` = ID 부터 CHK 직전까지의 바이트 합 (1바이트, `calculate_checksum`)
+- 주소: `ADDR_MOTOR = 0x01`, `ADDR_LED = 0x02`
+
+### 수신 처리 (`uart_rx_task` → `process_packet`)
+
+`$` ~ `\n` 으로 프레임을 모은 뒤, **아래를 모두 통과한 유효 프레임만** 처리/디버깅합니다.
+
+1. 시작문자 `$` ~ 종료문자 `\n` 구조
+2. 슬레이브 ID == `MY_SLAVE_ID`
+3. cmd 가 `'W'` / `'R'` 이며 길이가 규칙(W=7, R=6)과 일치
+4. 체크섬 일치
+
+규칙을 어긴 프레임/잡음은 조용히 버려지고, 통과한 프레임만 `VALID FRAME` 로그로 출력됩니다.
+
+### 주기 송신 (`uart_tx_task`)
+
+- 2초 간격으로 프레임을 송신하는 디버그용 태스크
+- 보낼 값은 뮤텍스로 보호된 공유 구조체(`g_tx_payload`)에 담기며,
+  `protocol_set_tx_value(cmd, addr, data)` 로 외부(예: RX 처리 로직)에서 갱신 가능
+- 구조: RX 와 TX 가 공유 변수로만 연결되어, 받은 값에 따라 다음 송신값을 바꾸도록 확장 가능
+
+> ⚠️ **주의 (피드백 루프):** TX 가 보내는 프레임은 그 자체로 유효 프레임이므로, TX↔RX 가 루프백되거나 외부 장치가 echo 하면 `process_packet` 의 자동 응답이 무한 재트리거되어 UART 가 폭주할 수 있습니다. 양방향 통신 시 명령/응답 cmd 를 구분(예: 응답은 소문자)하거나 디버그 중에는 자동 응답을 비활성화하세요.
+
+---
+
+## 4. 환경 설정 (menuconfig)
+
+`idf.py menuconfig` → **"ESP32-CAM 애플리케이션 설정"** 에서 MQTT 브로커 주소를 지정합니다.
+
+```
+config MQTT_BROKER_URI
+    string "MQTT 브로커 주소 (URI)"
+    default "mqtt://192.168.0.10:1883"
+```
+
+> 이 값은 `sdkconfig` 에 저장되며 `.gitignore` 에 포함되어 커밋되지 않습니다.
+
+---
+
+## 5. 빌드 / 플래시 / 모니터
+
+```bash
+idf.py set-target esp32s3
+idf.py menuconfig          # MQTT 브로커 주소 등 설정
+idf.py build
+idf.py -p <PORT> flash monitor
+```
+
+UART 프로토콜 디버그는 `monitor` 화면(USB 콘솔)에서 `PROTOCOL` 태그 로그로 확인합니다.
+
+---
+
+## 6. 디렉터리 구조
 
 ```
 ├── CMakeLists.txt
-├── pytest_hello_world.py      Python script used for automated testing
 ├── main
-│   ├── CMakeLists.txt
-│   └── hello_world_main.c
-└── README.md                  This is the file you are currently reading
+│   ├── main.c              앱 진입점 / 부팅 시퀀스
+│   ├── ble_prov.c/.h       BLE WiFi 프로비저닝
+│   ├── wifi_manager.c/.h   WiFi 연결/저장/스캔
+│   ├── camera_module.c/.h  OV2640 카메라
+│   ├── camera_pins.h       카메라 핀맵
+│   ├── http_server.c/.h    MJPEG/정지영상 HTTP 서버 (디버그)
+│   ├── mqtt_cam.c/.h       MQTT 카메라 클라이언트 (메인 경로)
+│   ├── protocol.c/.h       UART2 사용자 정의 프로토콜
+│   └── Kconfig.projbuild   menuconfig 설정 항목
+└── README.md               이 문서
 ```
 
-For more information on structure and contents of ESP-IDF projects, please refer to Section [Build System](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/build-system.html) of the ESP-IDF Programming Guide.
+---
 
-## Troubleshooting
+## 7. 참고
 
-* Program upload failure
-
-    * Hardware connection is not correct: run `idf.py -p PORT monitor`, and reboot your board to see if there are any output logs.
-    * The baud rate for downloading is too high: lower your baud rate in the `menuconfig` menu, and try again.
-
-## Technical support and feedback
-
-Please use the following feedback channels:
-
-* For technical queries, go to the [esp32.com](https://esp32.com/) forum
-* For a feature request or bug report, create a [GitHub issue](https://github.com/espressif/esp-idf/issues)
-
-We will get back to you as soon as possible.
-
-# 환경변수 예시
-
-menu "ESP32-CAM 애플리케이션 설정"
-
-    config MQTT_BROKER_URI
-        string "MQTT 브로커 주소 (URI)"
-        default "mqtt://192.168.0.10:1883"
-        help
-            FastAPI 서버(=MQTT 브로커)가 떠 있는 PC 의 주소입니다.
-            예) "mqtt://192.168.0.10:1883"
-
-            이 값은 sdkconfig 에 저장되며(.gitignore 에 포함되어 커밋되지 않음),
-            `idf.py menuconfig` 의
-            "ESP32-CAM 애플리케이션 설정" 메뉴에서 바꿀 수 있습니다.
-
-endmenu
-
+- [ESP-IDF Getting Started](https://docs.espressif.com/projects/esp-idf/en/stable/get-started/index.html)
+- 업로드 실패 시: 배선 확인 후 `idf.py -p PORT monitor` 로 부팅 로그 확인, menuconfig 에서 다운로드 baud rate 를 낮춰 재시도
