@@ -8,6 +8,7 @@
 #include "freertos/semphr.h"
 
 #include "protocol.h"
+#include "mqtt_cam.h"
 
 // TX 태스크가 2초마다 보낼 "현재 값"
 typedef struct {
@@ -140,6 +141,15 @@ void send_response(uint8_t slave_id, uint8_t cmd, uint8_t addr, uint8_t data){
     debug_hex_dump("VALID FRAME", buffer, length);
     ESP_LOGI(TAG, "VALID: slave=0x%02X cmd='%c' addr=%d",
              slave_id, cmd, addr);
+    
+    int data_val = (cmd == 'W') ? buffer[FRAME_IDX_W_DATA] : -1;
+    char json[64];
+    int n = snprintf(json,sizeof(json),
+        "{\"slave\":%d,\"cmd\":\"%c\",\"addr\":%d,\"data\":%d}",
+        slave_id, cmd, addr, data_val
+    );
+    
+    mqtt_cam_publish_uart(json,n);
 
     uint8_t data_8bit =0;
 
@@ -260,7 +270,7 @@ static void uart_tx_task(void *arg){
     /*
         디버깅을 위한 tx task
     */
-    xTaskCreate(uart_tx_task, "uart_tx_task", 4096, NULL, 10, NULL);
+    //xTaskCreate(uart_tx_task, "uart_tx_task", 4096, NULL, 10, NULL);
 
     ESP_LOGI(TAG, "UART%d init done (TX=%d RX=%d, %d bps)",
              PROTOCOL_UART_NUM, PROTOCOL_UART_TXD, PROTOCOL_UART_RXD,

@@ -74,6 +74,7 @@ Desktop.ini
 
 Kconfig.projbuild
 
+
 # User-specific configuration files
 *.user
 *.workspace # General workspace files, can be from various tools

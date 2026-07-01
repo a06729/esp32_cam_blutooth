@@ -34,6 +34,7 @@
 static char s_topic_cmd[48];
 static char s_topic_image[48];
 static char s_topic_status[48];
+static char s_topic_uart[48]; 
 
 static const char *TAG = "mqtt_cam";
 static esp_mqtt_client_handle_t s_client = NULL;
@@ -92,6 +93,22 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
     }
 }
 
+void mqtt_cam_publish_uart(const char *data,int len){
+    if(s_client == NULL){
+        ESP_LOGW(TAG,"MQTT 미시작 — UART 데이터 전송 건너뜀");
+    }
+    int msg_id = esp_mqtt_client_publish(
+        s_client, s_topic_uart, data, len,1,0
+    );
+
+    if (msg_id < 0) {
+        ESP_LOGE(TAG, "UART→MQTT publish 실패");
+    }else{
+        ESP_LOGI(TAG, "UART→MQTT: %.*s → %s", len, data, s_topic_uart);
+    }
+
+}
+
 esp_err_t mqtt_cam_start(void)
 {
     /* WiFi MAC 기반 기기 고유 ID 로 per-device 토픽 생성.
@@ -100,6 +117,8 @@ esp_err_t mqtt_cam_start(void)
     snprintf(s_topic_cmd,    sizeof(s_topic_cmd),    "esp32cam/%s/cmd",    dev_id);
     snprintf(s_topic_image,  sizeof(s_topic_image),  "esp32cam/%s/image",  dev_id);
     snprintf(s_topic_status, sizeof(s_topic_status), "esp32cam/%s/status", dev_id);
+    snprintf(s_topic_uart, sizeof(s_topic_uart),"esp32cam/%s/status",dev_id);
+
     ESP_LOGI(TAG, "device_key=%s  토픽: %s / %s / %s",
              dev_id, s_topic_cmd, s_topic_image, s_topic_status);
 
