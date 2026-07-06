@@ -43,6 +43,13 @@ static esp_mqtt_client_handle_t s_client = NULL;
 static void publish_capture(void)
 {
     camera_fb_t *fb = esp_camera_fb_get();
+
+    if (fb) {
+        esp_camera_fb_return(fb);
+    }
+
+    fb = esp_camera_fb_get();
+
     if (!fb) {
         ESP_LOGE(TAG, "프레임 캡처 실패");
         esp_mqtt_client_publish(s_client, s_topic_status, "capture_failed", 0, 1, 0);

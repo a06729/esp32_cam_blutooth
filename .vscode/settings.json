@@ -7,13 +7,14 @@
   "idf.portWin": "COM5",
   "idf.currentSetup": "/Users/jeongjongmin/.espressif/v6.0.1/esp-idf",
   "idf.customExtraVars": {
-    "IDF_TARGET": "esp32s3"
+    "IDF_TARGET": "esp32s3",
+    "OPENOCD_USB_ADAPTER_LOCATION": "0-1.2"
   },
-  "clangd.path": "C:\\Espressif\\tools\\esp-clang\\esp-20.1.1_20250829\\esp-clang\\bin\\clangd.exe",
+  "clangd.path": "/Users/jeongjongmin/.espressif/tools/esp-clang/esp-20.1.1_20250829/esp-clang/bin/clangd",
   "clangd.arguments": [
     "--background-index",
     "--query-driver=**",
-    "--compile-commands-dir=d:\\esp32\\project\\streamPj\\build"
+    "--compile-commands-dir=/Users/jeongjongmin/esp32_app/esp32_cam_blutooth/build"
   ],
   "idf.flashType": "UART",
   "idf.port": "/dev/tty.usbmodem5B5E0778851"
