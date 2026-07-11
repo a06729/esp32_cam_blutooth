@@ -132,6 +132,7 @@ esp_err_t mqtt_cam_start(void)
     esp_mqtt_client_config_t cfg = {
         .broker.address.uri = MQTT_BROKER_URI,
         .credentials.client_id = dev_id,   /* MQTT client_id = device_key(MAC) */
+        .session.keepalive = 60, 
         /* LWT: 비정상 종료 시 브로커가 대신 offline 을 알림 */
         .session.last_will = {
             .topic   = s_topic_status,
