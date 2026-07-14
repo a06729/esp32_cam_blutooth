@@ -144,8 +144,10 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     /* 디버그 로그 */
-    esp_log_level_set("camera", ESP_LOG_DEBUG);
-    esp_log_level_set("sccb",   ESP_LOG_DEBUG);
+    esp_log_level_set("camera",  ESP_LOG_VERBOSE);
+    esp_log_level_set("sccb",    ESP_LOG_VERBOSE);
+    esp_log_level_set("cam_hal", ESP_LOG_VERBOSE);
+    esp_log_level_set("cam_xclk", ESP_LOG_VERBOSE);
 
     /* WiFi 드라이버 초기화 (연결은 아직 하지 않음)
      * 카메라 초기화는 WiFi 연결 후로 미룸 — 카메라 배선 문제가
@@ -189,8 +191,14 @@ void app_main(void)
     wifi_manager_get_ip(ip, sizeof(ip));
     ESP_LOGI(TAG, "WiFi 연결됨. IP: %s", ip);
 
+    /* 카메라 초기화 전 SCCB 스캔으로 센서 응답 여부를 로그로 확인 (디버깅) */
+    camera_sccb_scan();
+
     if (camera_module_init() != ESP_OK) {
         ESP_LOGE(TAG, "카메라 초기화 실패 — 캡처는 동작하지 않지만 서버는 계속 실행");
+    } else {
+        /* 데이터버스(D0~D7/PCLK/VSYNC/HREF) 진단 — 컬러바 패턴을 hex 로 출력 (디버깅) */
+        camera_databus_test();
     }
 
     /* ---- MQTT 카메라 클라이언트 시작 ----
