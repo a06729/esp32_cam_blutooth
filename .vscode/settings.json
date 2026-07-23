@@ -17,5 +17,5 @@
     "--compile-commands-dir=/Users/jeongjongmin/esp32_app/esp32_cam_blutooth/build"
   ],
   "idf.flashType": "UART",
-  "idf.port": "/dev/tty.usbserial-0001"
+  "idf.port": "/dev/tty.usbmodem1101"
 }
